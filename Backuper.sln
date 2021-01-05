@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30804.86
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Backuper", "Backuper\Backuper.csproj", "{712C8101-9EC8-4255-93BA-2F8A4A1A45B7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{712C8101-9EC8-4255-93BA-2F8A4A1A45B7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{712C8101-9EC8-4255-93BA-2F8A4A1A45B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{712C8101-9EC8-4255-93BA-2F8A4A1A45B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{712C8101-9EC8-4255-93BA-2F8A4A1A45B7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4EB825D0-CDD9-4845-815B-EF3825122E27}
+	EndGlobalSection
+EndGlobal
