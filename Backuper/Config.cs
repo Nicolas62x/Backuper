@@ -94,6 +94,11 @@ Querries:
 
         public Config()
         {
+
+        }
+
+        public void Init()
+        {
             if (!File.Exists(Backuper.CurrentFolder + "Config.yml"))
             {
                 File.WriteAllText(Backuper.CurrentFolder + "Config.yml", BaseConfig);
@@ -127,8 +132,7 @@ Querries:
 
 
             Console.WriteLine("Successfully loaded Config file: \n" + config);
-
-
         }
+
     }
 }

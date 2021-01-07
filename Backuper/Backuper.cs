@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.IO.Compression;
 
 namespace Backuper
 {
@@ -35,7 +36,20 @@ namespace Backuper
         static void Main(string[] args)
         {
 
+            ZipArchive f = ZipFile.Open(@"C:\Users\nicol\Documents\crashdumps.zip",ZipArchiveMode.Create);
+
+            string[] files = Directory.GetFiles(@"C:\Users\nicol\Documents\crashdumps");
+
+            foreach(string s in files)
+            {
+                f.CreateEntryFromFile(s, Path.GetFileName(s));
+            }
+            
+            f.Dispose();
+
             Config config = new Config();
+
+            config.Init();
 
             stringContainer[] status = new stringContainer[config.Querries.Length];
 
