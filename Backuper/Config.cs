@@ -19,6 +19,7 @@ namespace Backuper
         public string BackupFolder = "./Backups";
         public string[] Ignore = null;
         public string date = "6:00";
+        public bool Compressed = false;
 
         public override string ToString()
         {
@@ -29,6 +30,7 @@ namespace Backuper
             res += $"BackupCountToKeep: {BackupCountToKeep}\n";
             res += $"FolderToSave: {FolderToBackup}\n";
             res += $"BackupFolder: {BackupFolder}\n";
+            res += $"Compressed: {Compressed}\n";
             res += $"StartingDate" +
                 $": {date}\n";
             res += $"Ingore:\n";
@@ -81,6 +83,9 @@ Querries:
 
    #Destination Folder of the Backups
    BackupFolder:       /root/Backups
+
+   #Enable Zip Compression
+   Compressed: true
 
    #Files or folders to ignore, all path are local path from the base folder
    Ignore:

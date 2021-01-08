@@ -1,12 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.IO.Compression;
 
 namespace Backuper
 {
@@ -35,17 +33,6 @@ namespace Backuper
 
         static void Main(string[] args)
         {
-
-            ZipArchive f = ZipFile.Open(@"C:\Users\nicol\Documents\crashdumps.zip",ZipArchiveMode.Create);
-
-            string[] files = Directory.GetFiles(@"C:\Users\nicol\Documents\crashdumps");
-
-            foreach(string s in files)
-            {
-                f.CreateEntryFromFile(s, Path.GetFileName(s));
-            }
-            
-            f.Dispose();
 
             Config config = new Config();
 
@@ -97,8 +84,27 @@ namespace Backuper
 
                 DateTime t = DateTime.Today.AddHours(hours).AddMinutes(minutes);
 
-                if (DateTime.Now > t)
-                    t = t.AddDays(1);
+                while (DateTime.Now > t)
+                    switch (q.Occurences)
+                    {
+                        case BackupOccurences.Hourly:
+
+                            t = t.AddHours(q.OccurenceFactor);
+
+                            break;
+                        case BackupOccurences.Dayly:
+
+                            t = t.AddDays(q.OccurenceFactor);
+
+                            break;
+                        case BackupOccurences.Monthly:
+
+                            t = t.AddDays(q.OccurenceFactor * 30.437);
+
+                            break;
+                        default:
+                            break;
+                    }
 
                 BackupData dats = new BackupData();
 
@@ -114,8 +120,8 @@ namespace Backuper
                 {
                     if ((t - DateTime.Now).TotalSeconds < 30)
                     {
-                        MakeBackup(q.FolderToBackup, q.BackupFolder, in Backups, q.Ignore, ref dats);
-                        
+                        MakeBackup(q.FolderToBackup, q.BackupFolder, in Backups, q.Ignore, ref dats,q.Compressed);
+
                         Console.WriteLine("Next backup: " + t);
 
                         if (Backups.Count > 1 && Backups.Count > q.BackupCountToKeep)
@@ -124,8 +130,11 @@ namespace Backuper
 
                             if (Directory.Exists(p))
                             {
-                                Console.WriteLine("Deleting old backup: " + p);
                                 Directory.Delete(p, true);
+                            }
+                            else if (File.Exists(p + ".zip"))
+                            {
+                                File.Delete(p + ".zip");
                             }
 
                         }
@@ -168,7 +177,7 @@ namespace Backuper
         }
 
 
-        static void MakeBackup(string from, string to, in Queue<string> Backups, string[] ignore, ref BackupData dats)
+        static void MakeBackup(string from, string to, in Queue<string> Backups, string[] ignore, ref BackupData dats, bool Compressed = false)
         {
             if (!from.EndsWith("/"))
                 from = from + "/";
@@ -246,89 +255,124 @@ namespace Backuper
 
             DateTime d = DateTime.Now;
 
-            string date = d.Year + "_" + d.Month + "_" + d.Day + "_" + d.Hour;
+            string date = d.Year + " " + d.Month + " " + d.Day + " " + d.Hour + "H" + d.Minute;
             UInt64 i = 0;
 
             dats.date = date;
 
         oupsi:
 
-            if (!Directory.Exists(to + date))
+            if (!Directory.Exists(to + date) && !File.Exists(to + date + ".zip"))
             {
-                Directory.CreateDirectory(to + date);
+                if (!Compressed)
+                    Directory.CreateDirectory(to + date);
 
                 Backups.Enqueue(to + date);
             }
             else
             {
                 i++;
-                date = d.Year + "_" + d.Month + "_" + d.Day + "_" + d.Hour + "_" + i;
+                date = d.Year + " " + d.Month + " " + d.Day + " " + d.Hour + "H" + d.Minute + "_" + i;
                 goto oupsi;
             }
 
-            byte[] block = new byte[8192];
-
-            FileInfo fii = new FileInfo(from);
-
             int last = 0;
-            UInt64 lastCount = 0;
             UInt64 errors = 0;
 
-            for (UInt64 i2 = 0; i2 < (UInt64)files.Length; i2++)
+            if (Compressed)
             {
-                string s = files[i2];
+                ZipArchive zip = ZipFile.Open(to + date + ".zip", ZipArchiveMode.Create);
 
-                int a = (DateTime.Now - d).Seconds;
-
-                if (a > last)
+                for (UInt64 i2 = 0; i2 < (UInt64)files.Length; i2++)
                 {
-                    last = a;
+                    string s = files[i2];
+
+                    int a = (DateTime.Now - d).Seconds;
+
+                    if (a > last)
+                    {
+                        last = a;
+                        try
+                        {
+                            TitleWrite($"Transfer: {i2}/{files.Length} {i2 / (UInt64)a}/s {((UInt64)files.Length - i2) / (i2 / (UInt64)a)}s");
+                        }
+                        catch (Exception)
+                        {
+
+                        }
+
+                    }
+
+
                     try
                     {
-                        TitleWrite($"Transfer: {i2}/{files.Length} {i2 / (UInt64)a}/s {((UInt64)files.Length - i2) / (i2 / (UInt64)a)}s");
+                        string fpath = s.Substring(from.Length);
+                        string fpath2 = fpath.Substring(0, fpath.Length - Path.GetFileName(s).Length);
+
+                        zip.CreateEntryFromFile(s, fpath);
+
+
                     }
                     catch (Exception)
                     {
-
+                        errors++;
                     }
-
                 }
+             
+                zip.Dispose();
 
 
-                try
-                {
-                    FileStream f = File.OpenRead(s);
+                dats.Size += $" (Compressed: {(new FileInfo(to + date + ".zip").Length / 1048576.0).ToString("F2")} MiBytes)";
 
-                    FileInfo fii2 = new FileInfo(s);
-
-                    string fpath = fii2.DirectoryName.Substring(fii.DirectoryName.Length);
-
-
-                    if (!Directory.Exists(to + date + "/" + fpath))
-                        Directory.CreateDirectory(to + date + "/" + fpath);
-
-                    FileStream f2 = File.OpenWrite(to + date + "/" + fpath + "/" + fii2.Name);
-
-                    int l = f.Read(block, 0, block.Length);
-
-                    while (l > 0)
-                    {
-                        f2.Write(block, 0, l);
-                        l = f.Read(block, 0, block.Length);
-                    }
-
-                    f.Close();
-                    f2.Close();
-
-                }
-                catch (Exception)
-                {
-                    errors++;
-                }
             }
+            else
+            {
+                for (UInt64 i2 = 0; i2 < (UInt64)files.Length; i2++)
+                {
+                    string s = files[i2];
+
+                    int a = (DateTime.Now - d).Seconds;
+
+                    if (a > last)
+                    {
+                        last = a;
+                        try
+                        {
+                            TitleWrite($"Transfer: {i2}/{files.Length} {i2 / (UInt64)a}/s {((UInt64)files.Length - i2) / (i2 / (UInt64)a)}s");
+                        }
+                        catch (Exception)
+                        {
+
+                        }
+
+                    }
+
+
+                    try
+                    {
+                        string fpath = s.Substring(from.Length);
+                        string fpath2 = fpath.Substring(0, fpath.Length - Path.GetFileName(s).Length);
+
+
+                        if (!Directory.Exists(to + date + "/" + fpath2))
+                            Directory.CreateDirectory(to + date + "/" + fpath2);
+
+                        File.Copy(s, to + date + "/" + fpath);
+
+                    }
+                    catch (Exception)
+                    {
+                        errors++;
+                    }
+                }
+
+
+            }
+
 
             dats.error = "errors: " + errors.ToString();
             TitleWrite("Backuper powered by MCSharp.fr");
+
         }
 
     }
