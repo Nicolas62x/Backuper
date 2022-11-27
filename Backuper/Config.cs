@@ -21,7 +21,7 @@ class BackupQuerry
     public override string ToString()
     {
         string res = $"""
-            Occurences: {Occurences}
+                Occurences: {Occurences}
                 OccurenceFactor: {OccurenceFactor}
                 BackupCountToKeep: {BackupCountToKeep}
                 FolderToSave: {FolderToBackup}
