@@ -30,18 +30,15 @@ static class Backuper
 
     static void Main(string[] args)
     {
-        Config config = new Config();
 
-        config.Init();
+        stringContainer[] status = new stringContainer[Config.Querries.Length];
 
-        stringContainer[] status = new stringContainer[config.Querries.Length];
-
-        for (int i = 0; i < config.Querries.Length; i++)
+        for (int i = 0; i < Config.Querries.Length; i++)
         {
-            Console.WriteLine("Initializing querry: \n" + config.Querries[i].ToString());
+            Console.WriteLine("Initializing querry: \n" + Config.Querries[i].ToString());
 
             status[i] = new stringContainer();
-            HandleQuerry(config.Querries[i], status[i]);
+            HandleQuerry(Config.Querries[i], status[i]);
         }
 
         Thread.Sleep(5000);
