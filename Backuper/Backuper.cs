@@ -1,16 +1,44 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace Backuper;
 static class Backuper
 {
     public static string CurrentFolder = AppDomain.CurrentDomain.BaseDirectory.Replace('\\', '/');
-    public static void TitleWrite(string text)
+
+    static SortedList<DateTime, BackupQuerry> BackupQueue = new SortedList<DateTime, BackupQuerry>();
+    static object listLock = new object();
+
+    static readonly string[] SizeSuffixes =
+               { "bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" };
+    static string SizeSuffix(Int64 value, int decimalPlaces = 1)
+    {
+        if (decimalPlaces < 0) { throw new ArgumentOutOfRangeException("decimalPlaces"); }
+        if (value < 0) { return "-" + SizeSuffix(-value, decimalPlaces); }
+        if (value == 0) { return string.Format("{0:n" + decimalPlaces + "} bytes", 0); }
+
+        // mag is 0 for bytes, 1 for KB, 2, for MB, etc.
+        int mag = (int)Math.Log(value, 1024);
+
+        // 1L << (mag * 10) == 2 ^ (10 * mag) 
+        // [i.e. the number of bytes in the unit corresponding to mag]
+        decimal adjustedSize = (decimal)value / (1L << (mag * 10));
+
+        // make adjustment when the value is large enough that
+        // it would round up to 1000 or more
+        if (Math.Round(adjustedSize, decimalPlaces) >= 1000)
+        {
+            mag += 1;
+            adjustedSize /= 1024;
+        }
+
+        return string.Format("{0:n" + decimalPlaces + "} {1}",
+            adjustedSize,
+            SizeSuffixes[mag]);
+    }
+
+    static void TitleWrite(string text)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             Console.Title = text;
@@ -20,155 +48,131 @@ static class Backuper
     struct BackupData
     {
         public string date;
-        public string Size;
+        public long Size;
         public string error;
-    }
-    class stringContainer
-    {
-        public string s;
+
+        public BackupData()
+        {            
+            date = "N/A";
+            error = "";
+            Size = 0;
+        }
     }
 
     static void Main(string[] args)
     {
 
-        stringContainer[] status = new stringContainer[Config.Querries.Length];
+        string[] status = new string[Config.Querries.Length];
+        BackupData[] dats = new BackupData[Config.Querries.Length];
+        Queue<string>[] Backups = new Queue<string>[Config.Querries.Length];
 
-        for (int i = 0; i < Config.Querries.Length; i++)
+        foreach (BackupQuerry querry in Config.Querries)
         {
-            Console.WriteLine("Initializing querry: \n" + Config.Querries[i].ToString());
+            Console.WriteLine($"Initializing querry: \n{querry}");
 
-            status[i] = new stringContainer();
-            HandleQuerry(Config.Querries[i], status[i]);
+            querry.BackupFolder = querry.BackupFolder.Replace('\\', '/');
+            querry.FolderToBackup = querry.FolderToBackup.Replace('\\', '/');
+
+            querry.Ignore = querry.Ignore?.Select(x => x.Replace('\\', '/')).ToArray();
+
+            Backups[Array.IndexOf(Config.Querries, querry)] = new Queue<string>();
+            dats[Array.IndexOf(Config.Querries, querry)] = new BackupData();
+
+            QueueQuerry(querry);
         }
 
         Thread.Sleep(5000);
 
+        Task.Run(() =>
+        {
+            try
+            {
+                int index;
+                while (true)
+                {
+                    var item = BackupQueue.First();
+
+                    index = Array.IndexOf(Config.Querries, item.Value);
+
+                    while (item.Key > DateTime.Now)
+                        Thread.Sleep(5000);
+
+                    MakeBackup(item.Value.FolderToBackup, item.Value.BackupFolder, in Backups[index], item.Value.Ignore, ref dats[index], item.Value.Compressed);
+
+                    if (Backups[index].Count > 1 && Backups[index].Count > item.Value.BackupCountToKeep)
+                    {
+                        string p = Backups[index].Dequeue();
+
+                        if (Directory.Exists(p))
+                            Directory.Delete(p, true);
+                        else if (File.Exists(p + ".zip"))
+                            File.Delete(p + ".zip");
+                    }
+
+                    lock (listLock)
+                    {
+                        BackupQueue.Remove(item.Key);
+                        BackupQueue.Add(AddOccurence(item.Value, item.Key), item.Value);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+        });
+
+
+        int index;
         while (true)
         {
             Console.Clear();
-            foreach (stringContainer sc in status)
-            {
-                Console.WriteLine(sc.s);
-            }
+
+            lock (listLock)
+                foreach (var item in BackupQueue)
+                {
+                    index = Array.IndexOf(Config.Querries, item.Value);
+
+                    Console.WriteLine($"""
+                        Next backup of: {item.Value.FolderToBackup} At: {item.Key} In: {(item.Key - DateTime.Now):hh\mm\ss}
+                        Last: {dats[index].date} {dats[index].Size}{SizeSuffix(dats[index].Size)} {dats[index].error}
+                        """);
+                }
 
 
-            Thread.Sleep(2000);
+            Thread.Sleep(5000);
         }
 
     }
 
-    static void HandleQuerry(BackupQuerry q, stringContainer status)
+    static void QueueQuerry(BackupQuerry querry)
     {
-        Task.Run(() =>
-        {
+        var date = querry.date.Split(':');
 
-            q.BackupFolder = q.BackupFolder.Replace('\\', '/');
-            q.FolderToBackup = q.FolderToBackup.Replace('\\', '/');
+        DateTime t = DateTime.Today.AddHours(int.Parse(date[0])).AddMinutes(int.Parse(date[1]));
 
-            for (int i = 0; i < q.Ignore.Length; i++)
-            {
-                q.Ignore[i] = q.Ignore[i].Replace('\\', '/');
-            }
+        while (DateTime.Now > t)
+            t = AddOccurence(querry, t);
 
-            int hours = int.Parse(q.date.Split(':')[0]);
-            int minutes = int.Parse(q.date.Split(':')[1]);
-
-            Queue<string> Backups = new Queue<string>();
-
-            DateTime t = DateTime.Today.AddHours(hours).AddMinutes(minutes);
-
-            while (DateTime.Now > t)
-                switch (q.Occurences)
-                {
-                    case BackupOccurences.Hourly:
-
-                        t = t.AddHours(q.OccurenceFactor);
-
-                        break;
-                    case BackupOccurences.Dayly:
-
-                        t = t.AddDays(q.OccurenceFactor);
-
-                        break;
-                    case BackupOccurences.Monthly:
-
-                        t = t.AddDays(q.OccurenceFactor * 30.437);
-
-                        break;
-                    default:
-                        break;
-                }
-
-            BackupData dats = new BackupData();
-
-            dats.date = "N/A";
-            dats.error = "";
-            dats.Size = "";
-
-
-            status.s = "Next backup of: " + q.FolderToBackup + " At: " + t + " In: " + (t - DateTime.Now).ToString("hh\\:mm\\:ss") + "\nLast: " + dats.date + " " + dats.Size + " " + dats.error + "              ";
-
-
-            while (true)
-            {
-                if ((t - DateTime.Now).TotalSeconds < 30)
-                {
-                    MakeBackup(q.FolderToBackup, q.BackupFolder, in Backups, q.Ignore, ref dats,q.Compressed);
-
-                    Console.WriteLine("Next backup: " + t);
-
-                    if (Backups.Count > 1 && Backups.Count > q.BackupCountToKeep)
-                    {
-                        string p = Backups.Dequeue();
-
-                        if (Directory.Exists(p))
-                        {
-                            Directory.Delete(p, true);
-                        }
-                        else if (File.Exists(p + ".zip"))
-                        {
-                            File.Delete(p + ".zip");
-                        }
-
-                    }
-
-                    switch (q.Occurences)
-                    {
-                        case BackupOccurences.Hourly:
-
-                            t = t.AddHours(q.OccurenceFactor);
-
-                            break;
-                        case BackupOccurences.Dayly:
-
-                            t = t.AddDays(q.OccurenceFactor);
-
-                            break;
-                        case BackupOccurences.Monthly:
-
-                            t = t.AddDays(q.OccurenceFactor * 30.437);
-
-                            break;
-                        default:
-                            break;
-                    }
-
-
-                }
-                else
-                {
-
-
-                    status.s = "Next backup of: " + q.FolderToBackup + " At: " + t + " In: " + (t - DateTime.Now).ToString("hh\\:mm\\:ss") + "\nLast: " + dats.date + " " + dats.Size + " " + dats.error + "              ";
-                }
-
-                Thread.Sleep(1000);
-            }
-
-        });
-
+        BackupQueue.Add(t, querry);
     }
 
+    static DateTime AddOccurence(BackupQuerry querry, DateTime date)
+    {
+        switch (querry.Occurences)
+        {
+            case BackupOccurences.Hourly:
+                return date.AddHours(querry.OccurenceFactor);
+
+            case BackupOccurences.Dayly:
+                return date.AddDays(querry.OccurenceFactor);
+
+            case BackupOccurences.Monthly:
+                return date.AddDays(querry.OccurenceFactor * 30.437);
+        }
+
+        throw new InvalidDataException($"Occurence: {querry.Occurences} is not valid");
+    }
 
     static void MakeBackup(string from, string to, in Queue<string> Backups, string[] ignore, ref BackupData dats, bool Compressed = false)
     {
@@ -237,7 +241,7 @@ static class Backuper
 
         files = tmp.ToArray();
 
-        dats.Size = (dataLenght / 1048576.0).ToString("F2") + " MiBytes";
+        dats.Size = dataLenght;
 
         if (!Directory.Exists(to))
         {
@@ -315,7 +319,7 @@ static class Backuper
             zip.Dispose();
 
 
-            dats.Size += $" (Compressed: {(new FileInfo(to + date + ".zip").Length / 1048576.0).ToString("F2")} MiBytes)";
+            dats.Size += new FileInfo(to + date + ".zip").Length;
 
         }
         else
