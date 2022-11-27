@@ -1,30 +1,27 @@
 ﻿using SharpYaml.Serialization;
-using System;
-using System.IO;
 
-namespace Backuper
+namespace Backuper;
+enum BackupOccurences
 {
-    enum BackupOccurences
-    {
-        Hourly,
-        Dayly,
-        Monthly
-    }
-    class BackupQuerry
-    {
-        public BackupOccurences Occurences = BackupOccurences.Dayly;
-        public float OccurenceFactor = 1;
-        public int BackupCountToKeep = 3;
-        public string FolderToBackup = "./ToBackup";
-        public string BackupFolder = "./Backups";
-        public string[]? Ignore = null;
-        public string date = "6:00";
-        public bool Compressed = false;
+    Hourly,
+    Dayly,
+    Monthly
+}
+class BackupQuerry
+{
+    public BackupOccurences Occurences = BackupOccurences.Dayly;
+    public float OccurenceFactor = 1;
+    public int BackupCountToKeep = 3;
+    public string FolderToBackup = "./ToBackup";
+    public string BackupFolder = "./Backups";
+    public string[]? Ignore = null;
+    public string date = "6:00";
+    public bool Compressed = false;
 
-        public override string ToString()
-        {
-            string res = $"""
-                Occurences: {Occurences}
+    public override string ToString()
+    {
+        string res = $"""
+            Occurences: {Occurences}
                 OccurenceFactor: {OccurenceFactor}
                 BackupCountToKeep: {BackupCountToKeep}
                 FolderToSave: {FolderToBackup}
@@ -34,22 +31,22 @@ namespace Backuper
                 Ignore: {string.Join(' ', Ignore ?? Array.Empty<string>())}
                 """;
 
-            return res;
-        }
-
+        return res;
     }
 
-    struct QuerryConfig
-    {
-        public BackupQuerry[] Querries;
-    }
+}
 
-    static class Config
-    {
-        public static BackupQuerry[] Querries => Querry.Querries;
-        static QuerryConfig Querry;
+struct QuerryConfig
+{
+    public BackupQuerry[] Querries;
+}
 
-        const string BaseConfig = """
+static class Config
+{
+    public static BackupQuerry[] Querries => Querry.Querries;
+    static QuerryConfig Querry;
+
+    const string BaseConfig = """
             #
             #  ____             _                             _____             __ _       
             # |  _ \           | |                           / ____|           / _(_)      
@@ -98,36 +95,35 @@ namespace Backuper
                 - A_file.txt
             """;
 
-        static Config()
+    static Config()
+    {
+        if (!File.Exists(Backuper.CurrentFolder + "Config.yml"))
         {
-            if (!File.Exists(Backuper.CurrentFolder + "Config.yml"))
-            {
-                File.WriteAllText(Backuper.CurrentFolder + "Config.yml", BaseConfig);
-                Console.WriteLine($"Config File was not found at {Backuper.CurrentFolder + "Config.yml"}, Created a new one\nPress enter to continue");
-                Console.ReadLine();
-            }
-
-            string config = File.ReadAllText(Backuper.CurrentFolder + "Config.yml");
-
-            Serializer s = new Serializer();
-
-            try
-            {
-                Querry = s.Deserialize<QuerryConfig>(config);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.ToString());
-                Console.WriteLine($"Config File is corrupted at {Backuper.CurrentFolder + "Config.yml"}\nPress enter to create a default one");
-
-                Console.ReadLine();
-
-                File.WriteAllText(Backuper.CurrentFolder + "Config.yml", BaseConfig);
-                Querry = s.Deserialize<QuerryConfig>(BaseConfig);
-            }
-
-            Console.WriteLine("Successfully loaded Config file: \n" + config);
+            File.WriteAllText(Backuper.CurrentFolder + "Config.yml", BaseConfig);
+            Console.WriteLine($"Config File was not found at {Backuper.CurrentFolder + "Config.yml"}, Created a new one\nPress enter to continue");
+            Console.ReadLine();
         }
 
+        string config = File.ReadAllText(Backuper.CurrentFolder + "Config.yml");
+
+        Serializer s = new Serializer();
+
+        try
+        {
+            Querry = s.Deserialize<QuerryConfig>(config);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.ToString());
+            Console.WriteLine($"Config File is corrupted at {Backuper.CurrentFolder + "Config.yml"}\nPress enter to create a default one");
+
+            Console.ReadLine();
+
+            File.WriteAllText(Backuper.CurrentFolder + "Config.yml", BaseConfig);
+            Querry = s.Deserialize<QuerryConfig>(BaseConfig);
+        }
+
+        Console.WriteLine("Successfully loaded Config file: \n" + config);
     }
+
 }
