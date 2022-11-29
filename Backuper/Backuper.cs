@@ -73,6 +73,12 @@ static class Backuper
             querry.BackupFolder = querry.BackupFolder.Replace('\\', '/');
             querry.FolderToBackup = querry.FolderToBackup.Replace('\\', '/');
 
+            if (!querry.BackupFolder.EndsWith("/"))
+                querry.BackupFolder += '/';
+
+            if (!querry.FolderToBackup.EndsWith("/"))
+                querry.FolderToBackup += '/';
+
             querry.Ignore = querry.Ignore?.Select(x => x.Replace('\\', '/')).ToArray();
 
             Backups[Array.IndexOf(Config.Querries, querry)] = new Queue<string>();
@@ -134,8 +140,8 @@ static class Backuper
                     index = Array.IndexOf(Config.Querries, item.Value);
 
                     Console.WriteLine($"""
-                        Next backup of: {item.Value.FolderToBackup} At: {item.Key} In: {(item.Key - DateTime.Now):hh\mm\ss}
-                        Last: {dats[index].date} {dats[index].Size}{SizeSuffix(dats[index].Size)} {dats[index].error}
+                        Next backup of: {item.Value.FolderToBackup} At: {item.Key} In: {(item.Key - DateTime.Now):hh\:mm\:ss}
+                        Last: {dats[index].date} {SizeSuffix(dats[index].Size)} {dats[index].error}
                         """);
                 }
 
@@ -174,14 +180,8 @@ static class Backuper
         throw new InvalidDataException($"Occurence: {querry.Occurences} is not valid");
     }
 
-    static void MakeBackup(string from, string to, in Queue<string> Backups, string[] ignore, ref BackupData dats, bool Compressed = false)
+    static void MakeBackup(string from, string to, in Queue<string> Backups, string[]? ignore, ref BackupData dats, bool Compressed = false)
     {
-        if (!from.EndsWith("/"))
-            from = from + "/";
-
-        if (!to.EndsWith("/"))
-            to = to + "/";
-
         dats.error = "";
 
         if (!Directory.Exists(from))
@@ -191,68 +191,32 @@ static class Backuper
         }
 
         if (!Directory.Exists(to))
-        {
             Directory.CreateDirectory(to);
-        }
 
-        string[] files = Directory.GetFiles(from, "*", SearchOption.AllDirectories);
+        if (ignore is null)
+            ignore = Array.Empty<string>();
 
-        Int64 dataLenght = 0;
+        IEnumerable<string> ignoredFolders = ignore.Where(x => Directory.Exists(from + x)).Select(x => x.EndsWith('/') ? x : x + '/');
+        IEnumerable<string> ignoredFiles = ignore.Where(x => File.Exists(from + x));
 
-        List<string> tmp = new List<string>();
+        IEnumerable<string> files = Directory.GetFiles(from, "*", SearchOption.AllDirectories)
+            .Select(x => x.Replace('\\', '/'))
+            .Where(x => File.Exists(x) && !ignoredFolders.Any(y => x.Substring(from.Length).Contains(y)) && !ignoredFiles.Contains(x.Split('/').Last()));
+        
+        dats.Size = 0;
+        int fileCount = 0;
 
-        foreach (string ss in files)
+        foreach (string s in files)
         {
-            string s = ss.Replace('\\', '/');
-            try
-            {
-                FileInfo fi = new FileInfo(s);
-
-                bool ok = true;
-
-                foreach (string ig in ignore)
-                {
-                    if (ig.EndsWith("/") && s.Contains(from + ig))
-                    {
-                        ok = false;
-                        break;
-                    }
-                    else if (!ig.EndsWith("/") && s.EndsWith(ig))
-                    {
-                        ok = false;
-                        break;
-                    }
-
-                }
-
-                if (!ok)
-                    continue;
-
-                tmp.Add(s);
-                if (fi.Exists)
-                    dataLenght += fi.Length;
-
-            }
-            catch (Exception)
-            {
-
-            }
+            fileCount++;
+            dats.Size += new FileInfo(s).Length;
         }
-
-        files = tmp.ToArray();
-
-        dats.Size = dataLenght;
 
         if (!Directory.Exists(to))
-        {
             Directory.CreateDirectory(to);
-        }
-
-        Thread.Sleep(1000);
 
         DateTime d = DateTime.Now;
-
-        string date = d.Year + " " + d.Month + " " + d.Day + " " + d.Hour + "H" + d.Minute;
+        string date = $"{d.Year} {d.Month} {d.Day} {d.Hour}H{d.Minute}";
         UInt64 i = 0;
 
         dats.date = date;
@@ -268,108 +232,74 @@ static class Backuper
         }
         else
         {
-            i++;
-            date = d.Year + " " + d.Month + " " + d.Day + " " + d.Hour + "H" + d.Minute + "_" + i;
+            date = $"{d.Year} {d.Month} {d.Day} {d.Hour}H{d.Minute}_{++i}";
             goto oupsi;
         }
 
         int last = 0;
-        UInt64 errors = 0;
+        int done = 0;
+        int errors = 0;
 
         if (Compressed)
         {
-            ZipArchive zip = ZipFile.Open(to + date + ".zip", ZipArchiveMode.Create);
-
-            for (UInt64 i2 = 0; i2 < (UInt64)files.Length; i2++)
+            using ZipArchive zip = ZipFile.Open(to + date + ".zip", ZipArchiveMode.Create);
+            
+            foreach (string f in files)
             {
-                string s = files[i2];
-
-                int a = (DateTime.Now - d).Seconds;
+                int a = (int)(DateTime.Now - d).TotalSeconds;
 
                 if (a > last)
                 {
                     last = a;
-                    try
-                    {
-                        TitleWrite($"Transfer: {i2}/{files.Length} {i2 / (UInt64)a}/s {((UInt64)files.Length - i2) / (i2 / (UInt64)a)}s");
-                    }
-                    catch (Exception)
-                    {
-
-                    }
-
+                    TitleWrite($"Transfer: {done}/{fileCount} {done / a}/s {(fileCount - done) / (done / a)}s");
                 }
-
 
                 try
                 {
-                    string fpath = s.Substring(from.Length);
-                    string fpath2 = fpath.Substring(0, fpath.Length - Path.GetFileName(s).Length);
-
-                    zip.CreateEntryFromFile(s, fpath);
-
-
+                    zip.CreateEntryFromFile(f, f.Substring(from.Length));
                 }
                 catch (Exception)
                 {
                     errors++;
                 }
+
+                done++;
             }
-         
-            zip.Dispose();
-
-
-            dats.Size += new FileInfo(to + date + ".zip").Length;
-
         }
         else
         {
-            for (UInt64 i2 = 0; i2 < (UInt64)files.Length; i2++)
+            foreach (string f in files)
             {
-                string s = files[i2];
-
-                int a = (DateTime.Now - d).Seconds;
+                int a = (int)(DateTime.Now - d).TotalSeconds;
 
                 if (a > last)
                 {
                     last = a;
-                    try
-                    {
-                        TitleWrite($"Transfer: {i2}/{files.Length} {i2 / (UInt64)a}/s {((UInt64)files.Length - i2) / (i2 / (UInt64)a)}s");
-                    }
-                    catch (Exception)
-                    {
-
-                    }
-
+                    TitleWrite($"Transfer: {done}/{fileCount} {done / a}/s {(fileCount - done) / (done / a)}s");
                 }
-
 
                 try
                 {
-                    string fpath = s.Substring(from.Length);
-                    string fpath2 = fpath.Substring(0, fpath.Length - Path.GetFileName(s).Length);
-
+                    string fpath = f.Substring(from.Length);
+                    string fpath2 = fpath.Substring(0, fpath.Length - Path.GetFileName(f).Length);
 
                     if (!Directory.Exists(to + date + "/" + fpath2))
                         Directory.CreateDirectory(to + date + "/" + fpath2);
 
-                    File.Copy(s, to + date + "/" + fpath);
+                    File.Copy(f, to + date + "/" + fpath);
 
                 }
                 catch (Exception)
                 {
                     errors++;
                 }
+
+                done++;
             }
-
-
         }
 
 
         dats.error = "errors: " + errors.ToString();
-        TitleWrite("Backuper powered by MCSharp.fr");
-
     }
 
 }
